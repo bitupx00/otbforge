@@ -208,8 +208,8 @@ class OTBMWriter:
             for monster_name, ox, oy in spawn.monsters:
                 self._start_node(NodeType.MONSTER)
                 self._string(monster_name)
-                self._u16(ox)
-                self._u16(oy)
+                self._u16(ox & 0xFFFF)  # offsets can be negative
+                self._u16(oy & 0xFFFF)
                 self._string("")  # spawn file (empty)
                 self._end_node()
             self._end_node()
