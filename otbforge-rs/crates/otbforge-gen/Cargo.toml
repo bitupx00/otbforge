@@ -1,0 +1,12 @@
+[package]
+name = "otbforge-gen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Procedural generators for OTBForge — terrain, dungeons, towns, quests, and more"
+
+[dependencies]
+otbforge-models = { workspace = true }
+rand = { workspace = true }
+log = { workspace = true }

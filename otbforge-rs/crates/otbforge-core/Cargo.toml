@@ -1,0 +1,12 @@
+[package]
+name = "otbforge-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "High-level orchestration for OTBForge: validator, diff, stitcher, composer"
+
+[dependencies]
+otbforge-models = { workspace = true }
+otbforge-otbm = { workspace = true }
+serde = { workspace = true }
