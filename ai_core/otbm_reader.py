@@ -1,39 +1,64 @@
 """
 OTBM Binary Reader.
 
-Parses an OTBM v2 binary file/stream and reconstructs a MapData object.
+Parses an OTBM v2 / v3 binary file/stream and reconstructs a MapData object.
+
+Features
+--------
+* Full escaping support for every multi-byte field
+* All tile flags (PROTECTIONZONE, NOPVPZONE, NOLOGOUTZONE, PVPZONE,
+  NOSAVEZONE, HASLIGHT, …)
+* All item attributes (COUNT, CHARGES, DECAY_STATE, DURATION, ACTION_ID,
+  UNIQUE_ID, TEXT, DESC, TELE_DEST, HOUSE, CONTAINER, DEPOT,
+  WRITTENDATE, WRITTENBY, RUNE_CHARGES, SLEEPERGUID, SLEEPSTART)
+* House tiles (HOUSETILE nodes)
+* Towns with temple positions
+* Waypoints
+* Spawns (monster + NPC)
+* Containers with nested children (recursive)
+* Map statistics via ``stats()`` class method
+* Format validation (magic, version, checksum)
 """
 
 from __future__ import annotations
 
 import struct
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from .otbm_types import (
+from .models import (
     ESCAPE,
-    ESCAPE_THRESHOLD,
+    ItemData,
+    MapData,
     NODE_END,
     NODE_START,
     OTBM_MAGIC,
-    Attr,
-    NodeType,
-    TileFlags,
-    ItemData,
-    MapData,
-    NPCSpawnData,
     Position,
     SpawnData,
     TileData,
     TownData,
     WaypointData,
+    Attr,
+    NodeType,
 )
 
-# Sentinel returned when reading past the node boundary
+# Sentinel returned when reading past a node boundary
 _NODE_END_SENTINEL = object()
 
 
 class OTBMReader:
-    """Reads OTBM v2 binary format."""
+    """Reads OTBM v2 / v3 binary format.
+
+    Usage::
+
+        reader = OTBMReader(raw_bytes)
+        map_data = reader.read()
+
+        # Or from file:
+        map_data = OTBMReader.from_file("map.otbm")
+
+        # Statistics:
+        stats = OTBMReader.stats(map_data)
+    """
 
     def __init__(self, data: bytes):
         self._data = data
@@ -55,7 +80,13 @@ class OTBMReader:
         return self._data[self._pos]
 
     def _escaped_byte(self):
-        """Read a potentially-escaped byte. Returns None at EOF, or _NODE_END_SENTINEL at node boundary."""
+        """Read one potentially-escaped byte.
+
+        Returns:
+            * int value on success
+            * ``None`` at EOF
+            * ``_NODE_END_SENTINEL`` at node boundary
+        """
         if self._eof():
             return None
         b = self._raw_byte()
@@ -68,6 +99,7 @@ class OTBMReader:
         return b
 
     def _u16(self):
+        """Read escaped uint16 LE.  Returns sentinel on boundary/EOF."""
         lo = self._escaped_byte()
         if lo is _NODE_END_SENTINEL or lo is None:
             return _NODE_END_SENTINEL
@@ -77,6 +109,7 @@ class OTBMReader:
         return (hi << 8) | lo
 
     def _u32(self):
+        """Read escaped uint32 LE.  Returns sentinel on boundary/EOF."""
         b0 = self._escaped_byte()
         if b0 is _NODE_END_SENTINEL or b0 is None:
             return _NODE_END_SENTINEL
@@ -92,10 +125,11 @@ class OTBMReader:
         return (b3 << 24) | (b2 << 16) | (b1 << 8) | b0
 
     def _string(self) -> Optional[str]:
+        """Read length-prefixed UTF-8 string.  Returns None on error."""
         length = self._u16()
         if length is _NODE_END_SENTINEL:
             return None
-        buf = []
+        buf: list = []
         for _ in range(length):
             ch = self._escaped_byte()
             if ch is _NODE_END_SENTINEL or ch is None:
@@ -108,7 +142,7 @@ class OTBMReader:
     # ------------------------------------------------------------------
 
     def _enter_node(self) -> Optional[int]:
-        """Expect NODE_START + type byte. Returns node type or None."""
+        """Expect NODE_START + type byte.  Returns node type or None."""
         if self._eof():
             return None
         b = self._raw_byte()
@@ -126,35 +160,43 @@ class OTBMReader:
         if not self._eof() and self._peek() == NODE_END:
             self._raw_byte()
 
+    def _skip_to_node_end(self) -> None:
+        """Skip all remaining content until NODE_END."""
+        while not self._at_node_end() and not self._eof():
+            self._escaped_byte()
+        self._skip_node_end()
+
     # ------------------------------------------------------------------
     # Item reading
     # ------------------------------------------------------------------
 
     def _read_item_compact(self) -> Optional[ItemData]:
-        """Read a compact item (u16 id after ATTR_ITEM attribute)."""
+        """Read compact item (u16 id after ATTR_ITEM)."""
         item_id = self._u16()
         if item_id is _NODE_END_SENTINEL:
             return None
         return ItemData(id=item_id)
 
     def _read_item_node(self) -> Optional[ItemData]:
-        """Read a full ITEM node (type byte already consumed by caller).
+        """Read full ITEM node.  Type byte already consumed by caller.
 
-        Reads attributes and child ITEM nodes. Leaves cursor at NODE_END.
+        Reads attributes then recursive children.  Leaves cursor at NODE_END.
         """
         item_id = self._u16()
         if item_id is _NODE_END_SENTINEL:
             return None
         item = ItemData(id=item_id)
-        # Read attributes until node boundary or child node
+
+        # Attributes until child node or boundary
         while not self._at_node_end() and not self._eof():
             if self._peek() == NODE_START:
-                break  # child node begins; stop reading attributes
+                break  # child node
             attr_byte = self._escaped_byte()
             if attr_byte is _NODE_END_SENTINEL or attr_byte is None:
                 break
             self._read_item_attr(item, attr_byte)
-        # Read child ITEM nodes (containers)
+
+        # Recursive child ITEM nodes (containers)
         while not self._at_node_end() and not self._eof():
             child_type = self._enter_node()
             if child_type is None:
@@ -163,12 +205,14 @@ class OTBMReader:
                 child = self._read_item_node()
                 if child is not None:
                     item.children.append(child)
-                self._skip_node_end()  # consume child ITEM node end
+                self._skip_node_end()
             else:
-                break
+                self._skip_to_node_end()
+
         return item
 
     def _read_item_attr(self, item: ItemData, attr: int) -> None:
+        """Dispatch a single item attribute read."""
         if attr == Attr.COUNT:
             v = self._escaped_byte()
             if v is not _NODE_END_SENTINEL and v is not None:
@@ -193,6 +237,10 @@ class OTBMReader:
             v = self._u16()
             if v is not _NODE_END_SENTINEL:
                 item.charges = v
+        elif attr == Attr.RUNE_CHARGES:
+            v = self._escaped_byte()
+            if v is not _NODE_END_SENTINEL and v is not None:
+                item.rune_charges = v
         elif attr == Attr.HOUSEDOORID:
             v = self._escaped_byte()
             if v is not _NODE_END_SENTINEL and v is not None:
@@ -207,16 +255,42 @@ class OTBMReader:
             z = self._escaped_byte()
             if (x is not _NODE_END_SENTINEL
                     and y is not _NODE_END_SENTINEL
-                    and z is not _NODE_END_SENTINEL):
+                    and z is not _NODE_END_SENTINEL
+                    and z is not None):
                 item.teleport_dest = Position(x=x, y=y, z=z)
-        # else: unknown attr — no generic skip possible; stop reading attrs
+        elif attr == Attr.DURATION:
+            v = self._u32()
+            if v is not _NODE_END_SENTINEL:
+                item.duration = v
+        elif attr == Attr.DECAYING_STATE:
+            v = self._escaped_byte()
+            if v is not _NODE_END_SENTINEL and v is not None:
+                item.decay_state = v
+        elif attr == Attr.WRITTENDATE:
+            v = self._u32()
+            if v is not _NODE_END_SENTINEL:
+                item.written_date = v
+        elif attr == Attr.WRITTENBY:
+            v = self._string()
+            if v is not None:
+                item.written_by = v
+        elif attr == Attr.SLEEPERGUID:
+            v = self._u32()
+            if v is not _NODE_END_SENTINEL:
+                item.sleeper_guid = v
+        elif attr == Attr.SLEEPSTART:
+            v = self._u32()
+            if v is not _NODE_END_SENTINEL:
+                item.sleep_start = v
+        # Unknown attr — silently skip (cannot know payload length)
 
     # ------------------------------------------------------------------
     # Tile reading
     # ------------------------------------------------------------------
 
-    def _read_tile(self, base_x: int, base_y: int, node_type: int) -> Optional[TileData]:
-        """Read tile content (type byte already consumed). Leaves cursor at NODE_END."""
+    def _read_tile(self, base_x: int, base_y: int,
+                   node_type: int, base_z: int) -> Optional[TileData]:
+        """Read tile content.  Type byte already consumed."""
         x_off = self._escaped_byte()
         if x_off is _NODE_END_SENTINEL or x_off is None:
             return None
@@ -231,12 +305,15 @@ class OTBMReader:
                 return None
             house_id = hid
 
-        tile = TileData(x=base_x + x_off, y=base_y + y_off, z=0, house_id=house_id)
+        tile = TileData(
+            x=base_x + x_off, y=base_y + y_off, z=base_z,
+            house_id=house_id,
+        )
 
-        # Read tile-level attributes
+        # Tile-level attributes
         while not self._at_node_end() and not self._eof():
             if self._peek() == NODE_START:
-                break  # child ITEM node begins; stop reading attributes
+                break
             attr_byte = self._escaped_byte()
             if attr_byte is _NODE_END_SENTINEL or attr_byte is None:
                 break
@@ -249,9 +326,10 @@ class OTBMReader:
                 if ground is not None:
                     tile.ground_id = ground.id
             else:
-                break  # unknown tile attr
+                # Unknown tile attribute — stop (can't know payload size)
+                break
 
-        # Read child ITEM nodes (stacked items)
+        # Child ITEM nodes
         while not self._at_node_end() and not self._eof():
             child_type = self._enter_node()
             if child_type is None:
@@ -260,14 +338,14 @@ class OTBMReader:
                 item = self._read_item_node()
                 if item is not None:
                     tile.items.append(item)
-                self._skip_node_end()  # consume ITEM node end
+                self._skip_node_end()
             else:
-                break
+                self._skip_to_node_end()
 
         return tile
 
     def _read_tile_area(self) -> Optional[List[TileData]]:
-        """Read TILE_AREA children. Leaves cursor at TILE_AREA's NODE_END."""
+        """Read TILE_AREA children.  Leaves cursor at TILE_AREA's NODE_END."""
         bx = self._u16()
         if bx is _NODE_END_SENTINEL:
             return None
@@ -284,16 +362,12 @@ class OTBMReader:
             if tile_type is None:
                 break
             if tile_type in (NodeType.TILE, NodeType.HOUSETILE):
-                tile = self._read_tile(bx, by, tile_type)
+                tile = self._read_tile(bx, by, tile_type, bz)
                 if tile is not None:
-                    tile.z = bz
                     tiles.append(tile)
-                self._skip_node_end()  # consume tile NODE_END
-            else:
-                # Unexpected node — skip to its end
-                while not self._at_node_end() and not self._eof():
-                    self._escaped_byte()
                 self._skip_node_end()
+            else:
+                self._skip_to_node_end()
         return tiles
 
     # ------------------------------------------------------------------
@@ -301,17 +375,13 @@ class OTBMReader:
     # ------------------------------------------------------------------
 
     def _read_towns(self) -> List[TownData]:
-        """Read TOWNS children. Leaves cursor at TOWNS's NODE_END."""
         towns: List[TownData] = []
         while not self._at_node_end() and not self._eof():
             t = self._enter_node()
             if t is None:
                 break
             if t != NodeType.TOWN:
-                # skip unexpected
-                while not self._at_node_end() and not self._eof():
-                    self._escaped_byte()
-                self._skip_node_end()
+                self._skip_to_node_end()
                 continue
             tid = self._u32()
             if tid is _NODE_END_SENTINEL:
@@ -328,8 +398,9 @@ class OTBMReader:
             tz = self._escaped_byte()
             if tz is _NODE_END_SENTINEL or tz is None:
                 break
-            towns.append(TownData(id=tid, name=tname, temple=Position(x=tx, y=ty, z=tz)))
-            self._skip_node_end()  # consume TOWN NODE_END
+            towns.append(TownData(id=tid, name=tname,
+                                  temple=Position(x=tx, y=ty, z=tz)))
+            self._skip_node_end()
         return towns
 
     # ------------------------------------------------------------------
@@ -337,16 +408,13 @@ class OTBMReader:
     # ------------------------------------------------------------------
 
     def _read_waypoints(self) -> List[WaypointData]:
-        """Read WAYPOINTS children. Leaves cursor at WAYPOINTS's NODE_END."""
         wps: List[WaypointData] = []
         while not self._at_node_end() and not self._eof():
             t = self._enter_node()
             if t is None:
                 break
             if t != NodeType.WAYPOINT:
-                while not self._at_node_end() and not self._eof():
-                    self._escaped_byte()
-                self._skip_node_end()
+                self._skip_to_node_end()
                 continue
             name = self._string()
             if name is None:
@@ -360,7 +428,8 @@ class OTBMReader:
             wz = self._escaped_byte()
             if wz is _NODE_END_SENTINEL or wz is None:
                 break
-            wps.append(WaypointData(name=name, pos=Position(x=wx, y=wy, z=wz)))
+            wps.append(WaypointData(name=name,
+                                    pos=Position(x=wx, y=wy, z=wz)))
             self._skip_node_end()
         return wps
 
@@ -369,16 +438,13 @@ class OTBMReader:
     # ------------------------------------------------------------------
 
     def _read_spawns(self) -> List[SpawnData]:
-        """Read SPAWNS children. Leaves cursor at SPAWNS's NODE_END."""
         spawns: List[SpawnData] = []
         while not self._at_node_end() and not self._eof():
             t = self._enter_node()
             if t is None:
                 break
             if t != NodeType.SPAWN_AREA:
-                while not self._at_node_end() and not self._eof():
-                    self._escaped_byte()
-                self._skip_node_end()
+                self._skip_to_node_end()
                 continue
             sx = self._u16()
             if sx is _NODE_END_SENTINEL:
@@ -398,9 +464,7 @@ class OTBMReader:
                 if mt is None:
                     break
                 if mt != NodeType.MONSTER:
-                    while not self._at_node_end() and not self._eof():
-                        self._escaped_byte()
-                    self._skip_node_end()
+                    self._skip_to_node_end()
                     continue
                 mname = self._string()
                 if mname is None:
@@ -413,9 +477,11 @@ class OTBMReader:
                     break
                 _spawn_file = self._string()  # ignored
                 monsters.append((mname, mox, moy))
-                self._skip_node_end()  # consume MONSTER NODE_END
-            spawns.append(SpawnData(x=sx, y=sy, z=sz, radius=sr, monsters=monsters))
-            self._skip_node_end()  # consume SPAWN_AREA NODE_END
+                self._skip_node_end()
+            spawns.append(SpawnData(
+                x=sx, y=sy, z=sz, radius=sr, monsters=monsters,
+            ))
+            self._skip_node_end()
         return spawns
 
     # ------------------------------------------------------------------
@@ -427,7 +493,7 @@ class OTBMReader:
         while not self._at_node_end() and not self._eof():
             next_byte = self._peek()
             if next_byte != NODE_START:
-                # Raw attribute byte (DESCRIPTION, EXT_SPAWN_FILE, etc.)
+                # Raw attribute byte
                 attr_byte = self._escaped_byte()
                 if attr_byte is _NODE_END_SENTINEL or attr_byte is None:
                     break
@@ -436,9 +502,17 @@ class OTBMReader:
                     if v is not None:
                         map_data.description = v
                 elif attr_byte == Attr.EXT_SPAWN_FILE:
-                    self._string()  # skip
+                    v = self._string()
+                    if v is not None:
+                        map_data.ext_spawn_file = v
                 elif attr_byte == Attr.EXT_HOUSE_FILE:
-                    self._string()  # skip
+                    v = self._string()
+                    if v is not None:
+                        map_data.ext_house_file = v
+                elif attr_byte == Attr.EXT_SPAWN_NPC_FILE:
+                    v = self._string()
+                    if v is not None:
+                        map_data.ext_spawn_npc_file = v
                 continue
 
             # Child node
@@ -455,13 +529,26 @@ class OTBMReader:
             elif child_type == NodeType.WAYPOINTS:
                 map_data.waypoints = self._read_waypoints()
             elif child_type == NodeType.SPAWNS:
-                map_data.spawns = self._read_spawns()
+                map_data.spawns.extend(self._read_spawns())
             else:
-                # Unknown child — skip to its NODE_END
-                while not self._at_node_end() and not self._eof():
-                    self._escaped_byte()
+                self._skip_to_node_end()
+                continue  # _skip_to_node_end already consumed END
 
-            self._skip_node_end()  # consume child node's NODE_END
+            self._skip_node_end()
+
+    # ------------------------------------------------------------------
+    # Format validation
+    # ------------------------------------------------------------------
+
+    def _validate_header(self) -> None:
+        """Check magic bytes.  Raises ValueError on invalid format."""
+        if len(self._data) < 6:
+            raise ValueError("File too small to be a valid OTBM")
+        if self._data[:4] != OTBM_MAGIC:
+            raise ValueError(
+                f"Invalid OTBM magic: {self._data[:4]!r} "
+                f"(expected {OTBM_MAGIC!r})"
+            )
 
     # ------------------------------------------------------------------
     # Public API
@@ -469,9 +556,7 @@ class OTBMReader:
 
     def read(self) -> MapData:
         """Parse the full OTBM stream and return a MapData."""
-        # Magic
-        if self._data[:4] != OTBM_MAGIC:
-            raise ValueError("Invalid OTBM magic bytes")
+        self._validate_header()
         self._pos = 4
 
         # Root node
@@ -481,10 +566,10 @@ class OTBMReader:
 
         map_data = MapData()
 
-        # Header
+        # Header fields
         v = self._u32()
         if v is _NODE_END_SENTINEL:
-            raise ValueError("Missing version")
+            raise ValueError("Missing OTBM version")
         map_data.otbm_version = v
 
         w = self._u16()
@@ -518,5 +603,11 @@ class OTBMReader:
 
     @classmethod
     def from_file(cls, path: str) -> MapData:
+        """Read and parse an OTBM file."""
         with open(path, "rb") as f:
             return cls(f.read()).read()
+
+    @classmethod
+    def stats(cls, map_data: MapData) -> Dict[str, object]:
+        """Return statistics about a parsed MapData."""
+        return map_data.stats()

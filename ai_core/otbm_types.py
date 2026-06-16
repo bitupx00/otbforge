@@ -169,6 +169,14 @@ class ItemData:
     depot_id: int = 0
     teleport_dest: Optional[Position] = None
     children: List["ItemData"] = field(default_factory=list)
+    # New v2+ fields
+    duration: int = 0
+    decay_state: int = 0
+    written_date: int = 0
+    written_by: str = ""
+    rune_charges: int = 0
+    sleeper_guid: int = 0
+    sleep_start: int = 0
 
     @property
     def has_children(self) -> bool:
@@ -237,3 +245,7 @@ class MapData:
     waypoints: List[WaypointData] = field(default_factory=list)
     spawns: List[SpawnData] = field(default_factory=list)
     npc_spawns: List[NPCSpawnData] = field(default_factory=list)
+    # External file refs (new fields for writer compat)
+    ext_spawn_file: str = ""
+    ext_house_file: str = ""
+    ext_spawn_npc_file: str = ""
