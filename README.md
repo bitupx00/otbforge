@@ -1,69 +1,134 @@
-# Tibia AI Mapper
+# OTBForge — OpenTibia AI Map Forge
 
-> AI-powered Tibia map editor — fork/extension of Remere's Map Editor: Redux
+> 🤖 AI-powered Tibia map generator. Describe un mapa en texto → obtiene un archivo OTBM listo para usar.
 
-## Visión
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
+[![Tests: 127](https://img.shields.io/badge/Tests-127%20passed-brightgreen.svg)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)]()
 
-Un map editor de Tibia (OTBM) donde la **IA (GLM-5-Turbo u otros LLMs)** puede:
-1. **Generar mapas proceduralmente** — describir en texto lo que quieres y la IA lo crea
-2. **Modificar zonas existentes** — "agrega una cueva de dragones al norte del castillo"
-3. **Colocar spawns y NPCs** — la IA entiende la lógica del juego
-4. **Bordes automáticos inteligentes** — la IA conoce las reglas de autoborder
-5. **Exportar OTBM** — compatible con RME, OTClient, TFS/Canary
+## ✨ Features
 
-## Repos de Referencia
+- **🌐 Text → Map**: Describe en español o inglés lo que quieres y genera el mapa
+- **🏔️ Terrain Generator**: Perlin noise con biomas, islas, ríos, vegetación automática
+- **⚔️ Dungeon Generator**: BSP rooms + corridors, multi-piso, chests y stairs
+- **🏘️ City Generator**: Grid streets, buildings, doors, NPCs, parks, murallas
+- **👾 Spawn Generator**: 22 tipos de monstruos con colocación bioma-aware
+- **🧠 LLM Bridge**: Compatible con GLM-5-Turbo, OpenAI, Ollama (opcional)
+- **📦 OTBM v2**: Writer + Reader completos con roundtrip verificado
+- **✅ Map Validator**: 13 checks de integridad (bounds, duplicates, IDs, etc)
+- **🔧 Zero Dependencies**: Solo Python stdlib, nada de numpy o similares
 
-### Principal — RME Redux (nuestra base)
-- **Repo:** `rme-redux/` — clone de https://github.com/TibiaDev/remeres-map-editor-redux
-- C++23, OpenGL 4.x, wxWidgets 3.3, NanoVG
-- ~900 commits, vibe-coded 90% con AI
-- 160+ FPS renderer, async sprite loading
-- OTBM read/write completo, OTB, DAT/SPR loading
-- Arquitectura: `source/map/`, `source/brushes/`, `source/io/`, `source/rendering/`
+## 🚀 Quick Start
 
-### RME Original (OpenTibiaBR)
-- **Repo:** `rme-source/` — clone de https://github.com/opentibiabr/remeres-map-editor
-- Versión estable, C++ clásico, wxWidgets 2.9
-- Referencia para formatos y compatibilidad
+```bash
+# Generar una isla con ciudad
+python3 -m ai_core.cli gen "una isla 256x256 con bosque y ciudad amurallada" -o mi_mapa.otbm
 
-### OTBM Generator (Python)
-- **Repo:** `otbm-gen/` — clone de https://github.com/Coldensjo/TibiaOTBMGenerator
-- Perlin noise terrain generation → OTBM
-- Buen punto de partida para generacion procedural
+# Generar un dungeon de 3 pisos
+python3 -m ai_core.cli gen "dungeon de 3 pisos con 10 habitaciones" -o dungeon.otbm --seed 42
 
-## Estructura del Proyecto
-
-```
-tibia-ai-mapper/
-├── rme-redux/       # RME Redux source (base C++ editor)
-├── rme-source/      # RME Original (referencia)
-├── otbm-gen/        # Python OTBM generator (inspiración)
-├── ai-core/         # [FUTURO] AI bridge — Python/Rust API
-├── docs/            # Documentación
-└── README.md
+# Ver info de un mapa
+python3 -m ai_core.cli info mi_mapa.otbm
 ```
 
-## Formatos Clave
+## 🎮 Comandos
 
-### OTBM (OpenTibia Binary Map)
-- Header: magic "OTBM" + version 2
-- Nodes: TILE_AREA → TILE → ITEM
-- Escaping: 0xFD before 0xFE/0xFF/0xFD
-- Versiones soportadas: 2 (Tibia 7.6-8.x), 3 (Tibia 10+)
+```bash
+python3 -m ai_core.cli gen "descripción del mapa" -o output.otbm [opciones]
+python3 -m ai_core.cli info archivo.otbm
+```
 
-### DAT/SPR (Client Assets)
-- DAT: item properties (flags, light, offset, etc.)
-- SPR: sprite pixel data (32x32 tiles)
-- Soporta versiones 7.x a 12.86+
+### Opciones
+| Flag | Descripción | Default |
+|------|-------------|---------|
+| `-o, --output` | Archivo OTBM de salida | `output.otbm` |
+| `--seed` | Semilla aleatoria | Auto |
+| `--api-key` | API key para LLM (opcional) | None |
+| `--api-url` | Base URL del LLM (opcional) | None |
+| `--model` | Modelo LLM | `glm-5-turbo` |
 
-### OTB (OpenTibia Binary Items)
-- Items database en formato binario
-- Versiones por cliente (8.0, 10.x, 12.x)
+## 🧠 LLM Integration (Opcional)
 
-## Next Steps
+Sin API key, funciona con **pattern parsing** puro. Con API:
 
-1. Analizar el OTBM writer de RME Redux como base
-2. Crear bridge Python ↔ OTBM (generación sin GUI)
-3. Integrar LLM para descripción → tiles
-4. Plugin system para comandos AI en RME
-5. Web UI alternativa (Electron + WebGL)
+```bash
+python3 -m ai_core.cli gen "un castillo fortificado con mazmorra subterránea y dragones" \
+  --api-key TU_KEY --api-url https://api.example.com/v1 --model glm-5-turbo \
+  -o castle.otbm
+```
+
+Compatible con cualquier API OpenAI-compatible: GLM-5-Turbo, GPT-4, Claude (via proxy), Ollama local.
+
+## 🏗️ Architecture
+
+```
+ai_core/
+├── __init__.py          # Package exports
+├── otbm_types.py        # Dataclasses + OTBM constants
+├── otbm_writer.py       # MapData → OTBM binary
+├── otbm_reader.py       # OTBM binary → MapData
+├── llm_bridge.py        # Text → MapData (parser + LLM + combiner)
+├── map_validator.py     # 13 integrity checks
+├── cli.py               # CLI interface
+└── generators/
+    ├── terrain.py       # Perlin noise terrain
+    ├── dungeon.py       # BSP dungeon
+    ├── city.py          # Grid city
+    └── spawns.py        # Monster/NPC spawns
+```
+
+## 📊 Test Coverage
+
+```
+127 tests — all passing in <10s
+
+tests/test_otbm.py         35  — OTBM writer/reader roundtrip
+tests/test_generators.py  37  — Terrain/Dungeon/City/Spawn generators
+tests/test_llm_bridge.py   24  — Prompt parser + combiner + LLM
+tests/test_validator.py    31  — Map integrity validation
+```
+
+## 🔧 Development
+
+```bash
+# Run tests
+python3 -m pytest tests/ -v
+
+# Generate a test map
+python3 -m ai_core.cli gen "isla 64x64" -o test.otbm --seed 42
+
+# Validate a map
+python3 -c "from ai_core.map_validator import MapValidator; from ai_core.otbm_reader import OTBMReader; m=OTBMReader(open('test.otbm','rb').read()).read(); issues=MapValidator.validate(m); print(MapValidator.summary(issues))"
+```
+
+## 📋 Supported Map Elements
+
+- ✅ Ground tiles (grass, dirt, sand, water, snow, rock, lava)
+- ✅ Items stacked on tiles (containers, chests, teleporters)
+- ✅ Tile flags (protection zone, PvP zone, house tiles)
+- ✅ Towns with temple positions
+- ✅ Waypoints
+- ✅ Monster spawns (22 types: dragon, demon, orc, spider, vampire...)
+- ✅ NPC spawns (Merchant, Banker, Healer, Guild Leader...)
+- ✅ Houses with doors
+- ✅ Nested containers (chest → drawer → items)
+
+## 🎯 Roadmap
+
+- [ ] OTB DAT/SPR loader (sprite assets)
+- [ ] Web UI (React + WebGL map viewer)
+- [ ] RME plugin integration
+- [ ] Multi-biome advanced generation
+- [ ] Quest/area designer
+- [ ] OTMM format support (Tibia 10+)
+- [ ] Import/export to other formats (JSON, XML)
+
+## 📜 License
+
+MIT — Free for OpenTibia community.
+
+## 🙏 Credits
+
+- Based on [Remere's Map Editor: Redux](https://github.com/TibiaDev/remeres-map-editor-redux) (C++23, 90% AI-coded)
+- OTBM format reference from [OpenTibiaBR RME](https://github.com/opentibiabr/remeres-map-editor)
+- Inspiration from [TibiaOTBMGenerator](https://github.com/Coldensjo/TibiaOTBMGenerator)
