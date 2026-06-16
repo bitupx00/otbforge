@@ -1,4 +1,23 @@
-*
-!.gitignore
-!README.md
-!docs/
+__pycache__/
+*.pyc
+*.pyo
+.eggs/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+*.otbm
+*.otbm.bak
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+graphify/
+.graphify/
+
+# Reference repos (cloned separately)
+rme-redux/
+rme-source/
+otbm-gen/
+ai-core
