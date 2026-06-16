@@ -41,10 +41,11 @@ def _load_map(filepath: str):
 
 def _load_json_map(filepath: str):
     """Load a MapData from JSON file."""
-    from ai_core.otbm_types import (
+    from ai_core.models import (
         MapData, TileData, TownData, WaypointData,
         SpawnData, NPCSpawnData, Position,
     )
+    ItemData = __import__('ai_core.models', fromlist=['ItemData']).ItemData
 
     with open(filepath, "r") as f:
         data = json.load(f)
@@ -53,8 +54,8 @@ def _load_json_map(filepath: str):
     for t_data in data.get("tiles", []):
         items = []
         for i_data in t_data.get("items", []):
-            items.append(__import__('ai_core.otbm_types', fromlist=['ItemData']).ItemData(
-                id=i_data["id"],
+            items.append(ItemData(
+                id=i_data.get("item_id", i_data.get("id", 0)),
                 count=i_data.get("count", 0),
                 action_id=i_data.get("action_id", 0),
             ))
@@ -69,14 +70,25 @@ def _load_json_map(filepath: str):
 
     towns = []
     for tw in data.get("towns", []):
+        tid = tw.get("town_id", tw.get("id", 0))
         temple = tw.get("temple", {})
         if isinstance(temple, (list, tuple)):
             tp = Position(x=temple[0], y=temple[1], z=temple[2] if len(temple) > 2 else 7)
         else:
-            tp = Position(**temple)
-        towns.append(TownData(id=tw["id"], name=tw["name"], temple=tp))
+            tx = tw.get("temple_x", temple.get("x", 0) if isinstance(temple, dict) else 0)
+            ty = tw.get("temple_y", temple.get("y", 0) if isinstance(temple, dict) else 0)
+            tz = tw.get("temple_z", temple.get("z", 7) if isinstance(temple, dict) else 7)
+            tp = Position(x=tx, y=ty, z=tz)
+        towns.append(TownData(id=tid, name=tw.get("name", ""), temple=tp))
 
-    waypoints = [WaypointData(name=wp["name"], pos=Position(**wp["pos"])) for wp in data.get("waypoints", [])]
+    waypoints = []
+    for wp in data.get("waypoints", []):
+        pos = wp.get("pos")
+        if isinstance(pos, dict):
+            wpos = Position(x=pos["x"], y=pos["y"], z=pos.get("z", 7))
+        else:
+            wpos = Position(x=wp.get("x", 0), y=wp.get("y", 0), z=wp.get("z", 7))
+        waypoints.append(WaypointData(name=wp.get("name", ""), pos=wpos))
     spawns = [SpawnData(x=s["x"], y=s["y"], z=s["z"], radius=s.get("radius", 0)) for s in data.get("spawns", [])]
     npc_spawns = [NPCSpawnData(x=n["x"], y=n["y"], z=n["z"], npc_name=n.get("npc_name", "")) for n in data.get("npc_spawns", [])]
 
@@ -445,6 +457,229 @@ def cmd_batch(args):
     return 0
 
 
+def cmd_json_export(args):
+    """Export map to JSON."""
+    from ai_core.json_codec import MapJsonCodec
+
+    filepath = args.file
+    if not os.path.exists(filepath):
+        print(f"❌ File not found: {filepath}", file=sys.stderr)
+        return 1
+
+    try:
+        map_data = _load_map(filepath)
+    except Exception as e:
+        print(f"❌ Failed to read file: {e}", file=sys.stderr)
+        return 1
+
+    output = args.output or filepath.rsplit(".", 1)[0] + ".json"
+    compact = args.compact
+    print(f"📤 Exporting to JSON: {output}")
+    MapJsonCodec.save(map_data, output, compact=compact)
+    size = os.path.getsize(output)
+    print(f"✅ Exported {len(map_data.tiles):,} tiles → {output} ({size:,} bytes)")
+    return 0
+
+
+def cmd_json_import(args):
+    """Import JSON map and convert to OTBM."""
+    from ai_core.json_codec import MapJsonCodec
+
+    filepath = args.file
+    if not os.path.exists(filepath):
+        print(f"❌ File not found: {filepath}", file=sys.stderr)
+        return 1
+
+    output = args.output or filepath.rsplit(".", 1)[0] + ".otbm"
+    print(f"📥 Importing from JSON: {filepath}")
+    try:
+        MapJsonCodec.import_otbm(filepath, output)
+    except Exception as e:
+        print(f"❌ Failed to import: {e}", file=sys.stderr)
+        return 1
+
+    size = os.path.getsize(output) if os.path.exists(output) else 0
+    print(f"✅ Imported → {output} ({size:,} bytes)")
+    return 0
+
+
+def cmd_pattern_list(args):
+    """List available patterns."""
+    from ai_core.patterns import TilePatternLibrary, PatternCategory
+
+    lib = TilePatternLibrary()
+    category = None
+    if args.category:
+        try:
+            category = PatternCategory(args.category.lower())
+        except ValueError:
+            print(f"❌ Unknown category: {args.category!r}", file=sys.stderr)
+            print(f"   Categories: {[c.value for c in PatternCategory]}", file=sys.stderr)
+            return 1
+
+    patterns = lib.list_patterns(category=category)
+    if not patterns:
+        print("No patterns found.")
+        return 0
+
+    print(f"📋 Patterns ({len(patterns)}):\n")
+    print(f"  {'Name':<25} {'Category':<12} {'Size':<10} Description")
+    print(f"  {'─'*25} {'─'*12} {'─'*10} {'─'*30}")
+    for p in patterns:
+        print(f"  {p.name:<25} {p.category.value:<12} {p.width}×{p.height:<6} {p.description}")
+    return 0
+
+
+def cmd_pattern_apply(args):
+    """Apply a pattern to a map."""
+    from ai_core.patterns import TilePatternLibrary
+
+    map_path = args.map_file
+    if not os.path.exists(map_path):
+        print(f"❌ File not found: {map_path}", file=sys.stderr)
+        return 1
+
+    # Parse position
+    parts = args.position.split(",")
+    if len(parts) != 3:
+        print(f"❌ Invalid position: {args.position} (expected x,y,z)", file=sys.stderr)
+        return 1
+    pos = (int(parts[0].strip()), int(parts[1].strip()), int(parts[2].strip()))
+
+    try:
+        map_data = _load_map(map_path)
+    except Exception as e:
+        print(f"❌ Failed to load map: {e}", file=sys.stderr)
+        return 1
+
+    lib = TilePatternLibrary()
+    pattern_name = args.name
+
+    print(f"🔧 Applying pattern '{pattern_name}' at ({pos[0]}, {pos[1]}, {pos[2]})")
+    try:
+        placed = lib.apply_pattern(map_data, pattern_name, pos[0], pos[1], pos[2], overwrite=args.overwrite)
+    except KeyError as e:
+        print(f"❌ {e}", file=sys.stderr)
+        return 1
+
+    output = args.output or map_path
+    _save_otbm(map_data, output)
+    size = os.path.getsize(output) if os.path.exists(output) else 0
+    print(f"✅ Placed {placed} tiles, saved to {output} ({size:,} bytes)")
+    return 0
+
+
+def cmd_stitch(args):
+    """Stitch multiple maps together."""
+    from ai_core.map_stitcher import MapStitcher
+
+    files = args.files
+    if len(files) < 2:
+        print("❌ Need at least 2 files to stitch", file=sys.stderr)
+        return 1
+
+    for f in files:
+        if not os.path.exists(f):
+            print(f"❌ File not found: {f}", file=sys.stderr)
+            return 1
+
+    layout = args.layout
+    output = args.output
+    print(f"🧵 Stitching {len(files)} maps (layout={layout}) → {output}")
+
+    try:
+        stitcher = MapStitcher()
+        result = stitcher.stitch_files(files, layout=layout)
+    except Exception as e:
+        print(f"❌ Stitching failed: {e}", file=sys.stderr)
+        return 1
+
+    _save_otbm(result, output)
+    size = os.path.getsize(output) if os.path.exists(output) else 0
+    print(f"✅ Stitched map: {result.width}×{result.height}, {len(result.tiles):,} tiles → {output} ({size:,} bytes)")
+    return 0
+
+
+def cmd_extract(args):
+    """Extract a region from a map."""
+    from ai_core.region_extractor import RegionExtractor, Region
+
+    map_path = args.map_file
+    if not os.path.exists(map_path):
+        print(f"❌ File not found: {map_path}", file=sys.stderr)
+        return 1
+
+    region = Region(x1=args.x1, y1=args.y1, x2=args.x2, y2=args.y2)
+    output = args.output
+
+    print(f"✂️  Extracting region ({args.x1},{args.y1})→({args.x2},{args.y2})")
+
+    try:
+        map_data = _load_map(map_path)
+        result = RegionExtractor.extract(map_data, region)
+    except Exception as e:
+        print(f"❌ Extraction failed: {e}", file=sys.stderr)
+        return 1
+
+    _save_otbm(result, output)
+    size = os.path.getsize(output) if os.path.exists(output) else 0
+    print(f"✅ Extracted {len(result.tiles):,} tiles ({result.width}×{result.height}) → {output} ({size:,} bytes)")
+    return 0
+
+
+def cmd_minimap(args):
+    """Generate a minimap from a map file."""
+    from ai_core.minimap import MinimapGenerator
+
+    map_path = args.file
+    if not os.path.exists(map_path):
+        print(f"❌ File not found: {map_path}", file=sys.stderr)
+        return 1
+
+    try:
+        map_data = _load_map(map_path)
+    except Exception as e:
+        print(f"❌ Failed to read file: {e}", file=sys.stderr)
+        return 1
+
+    width = args.width
+    height = args.height
+    fmt = args.format
+    output = args.output
+
+    if fmt == "ascii":
+        result = MinimapGenerator.generate_ascii(map_data, width=width, height=height)
+        if output:
+            with open(output, "w", encoding="utf-8") as f:
+                f.write(result)
+            print(f"✅ ASCII minimap ({width}×{height}) → {output}")
+        else:
+            print(result)
+        return 0
+
+    elif fmt == "unicode":
+        result = MinimapGenerator.generate_unicode(map_data, width=width, height=height)
+        if output:
+            with open(output, "w", encoding="utf-8") as f:
+                f.write(result)
+            print(f"✅ Unicode minimap ({width}×{height}) → {output}")
+        else:
+            print(result)
+        return 0
+
+    elif fmt == "html":
+        result = MinimapGenerator.generate_html(map_data, width=width, height=height)
+        output = output or "minimap.html"
+        with open(output, "w", encoding="utf-8") as f:
+            f.write(result)
+        print(f"✅ HTML minimap ({width}×{height}) → {output}")
+        return 0
+
+    else:
+        print(f"❌ Unknown format: {fmt!r} (use ascii, unicode, html)", file=sys.stderr)
+        return 1
+
+
 def cmd_quest(args):
     """Add a quest area to an existing map."""
     from ai_core.generators.quest import (
@@ -608,6 +843,58 @@ Examples:
     batch_parser = subparsers.add_parser("batch", help="Batch generation from config file")
     batch_parser.add_argument("config", help="JSON or YAML batch config file")
 
+    # ─── json-export ──────────────────────────────────────────────────
+    je_parser = subparsers.add_parser("json-export", help="Export map to JSON")
+    je_parser.add_argument("file", help="OTBM or JSON map file")
+    je_parser.add_argument("--output", "-o", default=None, help="Output JSON file")
+    je_parser.add_argument("--compact", action="store_true", help="Use compact tile format")
+
+    # ─── json-import ──────────────────────────────────────────────────
+    ji_parser = subparsers.add_parser("json-import", help="Import JSON map as OTBM")
+    ji_parser.add_argument("file", help="JSON map file")
+    ji_parser.add_argument("--output", "-o", default=None, help="Output OTBM file")
+
+    # ─── pattern ─────────────────────────────────────────────────────
+    pat_parser = subparsers.add_parser("pattern", help="Tile pattern operations")
+    pat_sub = pat_parser.add_subparsers(dest="pattern_subcommand", help="Pattern subcommand")
+
+    # pattern list
+    pat_list = pat_sub.add_parser("list", help="List available patterns")
+    pat_list.add_argument("--category", default=None, help="Filter by category (building, nature, dungeon, road, water, custom)")
+
+    # pattern apply
+    pat_apply = pat_sub.add_parser("apply", help="Apply a pattern to a map")
+    pat_apply.add_argument("map_file", help="OTBM or JSON map file")
+    pat_apply.add_argument("--name", "-n", required=True, help="Pattern name")
+    pat_apply.add_argument("--position", "-p", required=True, help="Position as x,y,z")
+    pat_apply.add_argument("--output", "-o", default=None, help="Output file (default: overwrite)")
+    pat_apply.add_argument("--overwrite", action="store_true", help="Overwrite existing tiles")
+
+    # ─── stitch ──────────────────────────────────────────────────────
+    stitch_parser = subparsers.add_parser("stitch", help="Stitch multiple maps together")
+    stitch_parser.add_argument("files", nargs="+", help="Map files to stitch (2-16)")
+    stitch_parser.add_argument("--layout", default="horizontal", choices=["horizontal", "vertical", "grid", "auto"],
+                              help="Layout strategy (default: horizontal)")
+    stitch_parser.add_argument("--output", "-o", required=True, help="Output OTBM file")
+
+    # ─── extract ─────────────────────────────────────────────────────
+    extract_parser = subparsers.add_parser("extract", help="Extract a region from a map")
+    extract_parser.add_argument("map_file", help="OTBM or JSON map file")
+    extract_parser.add_argument("--x1", type=int, required=True, help="Top-left X")
+    extract_parser.add_argument("--y1", type=int, required=True, help="Top-left Y")
+    extract_parser.add_argument("--x2", type=int, required=True, help="Bottom-right X")
+    extract_parser.add_argument("--y2", type=int, required=True, help="Bottom-right Y")
+    extract_parser.add_argument("--output", "-o", required=True, help="Output OTBM file")
+
+    # ─── minimap ─────────────────────────────────────────────────────
+    mm_parser = subparsers.add_parser("minimap", help="Generate minimap from map file")
+    mm_parser.add_argument("file", help="OTBM or JSON map file")
+    mm_parser.add_argument("--width", type=int, default=80, help="Width in characters/pixels (default: 80)")
+    mm_parser.add_argument("--height", type=int, default=40, help="Height in characters/pixels (default: 40)")
+    mm_parser.add_argument("--format", "-f", default="ascii", choices=["ascii", "unicode", "html"],
+                           help="Output format (default: ascii)")
+    mm_parser.add_argument("--output", "-o", default=None, help="Output file (for html/unicode)")
+
     # ─── quest ─────────────────────────────────────────────────────────
     quest_parser = subparsers.add_parser("quest", help="Add a quest area to a map")
     quest_parser.add_argument("map_file", help="OTBM or JSON map file")
@@ -660,6 +947,30 @@ def main(argv: list = None) -> int:
 
     elif args.command == "quest":
         return cmd_quest(args)
+
+    elif args.command == "json-export":
+        return cmd_json_export(args)
+
+    elif args.command == "json-import":
+        return cmd_json_import(args)
+
+    elif args.command == "pattern":
+        if getattr(args, "pattern_subcommand", None) == "list":
+            return cmd_pattern_list(args)
+        elif getattr(args, "pattern_subcommand", None) == "apply":
+            return cmd_pattern_apply(args)
+        else:
+            parser.print_help()
+            return 1
+
+    elif args.command == "stitch":
+        return cmd_stitch(args)
+
+    elif args.command == "extract":
+        return cmd_extract(args)
+
+    elif args.command == "minimap":
+        return cmd_minimap(args)
 
     else:
         parser.print_help()
