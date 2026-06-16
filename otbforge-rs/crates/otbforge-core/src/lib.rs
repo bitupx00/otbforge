@@ -1285,7 +1285,7 @@ mod tests {
         b.add_tile(5, 5, 7, tiles::DIRT);
 
         let stitcher = Stitcher::new(100, 0);
-        let result = stitcher.stitch_two(&a, &b);
+        let result = Stitcher::stitch_two(&a, &b);
         assert_eq!(result.tiles.len(), 2);
     }
 
