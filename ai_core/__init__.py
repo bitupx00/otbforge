@@ -1,9 +1,12 @@
-"""Tibia AI Mapper — AI-powered Tibia map generation.
+"""OTBForge — AI-powered OpenTibia map generation.
 
 Core package containing OTBM binary format support:
 - models.py: Data models, constants, enums (Position, TileData, ItemData, …)
 - otbm_writer.py: Full OTBM v2/v3 binary writer
 - otbm_reader.py: Full OTBM v2/v3 binary reader
+- live_client.py: RME Live Server TCP client (real-time tile push)
+- otbm_live_serializer.py: OTBM tile serialization for live protocol
+- live_cli.py: CLI subcommands for live mode
 """
 
 from .models import (
