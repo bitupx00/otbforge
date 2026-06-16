@@ -104,24 +104,30 @@ class TestDungeonGenerator:
         assert isinstance(result, MapData)
 
     def test_has_rooms(self):
+        from ai_core.generators.dungeon import DungeonTiles
         gen = DungeonGenerator(width=64, height=64, rooms_count=8,
                                min_room_size=4, max_room_size=10, seed=1)
         result = gen.generate()
-        # Rooms have stone floor (not wall)
-        floors = [t for t in result.tiles if t.ground_id == Tiles.STONE]
+        # Rooms have stone floor tiles (FLOOR_MIN to FLOOR_MAX)
+        floors = [t for t in result.tiles
+                  if DungeonTiles.FLOOR_MIN <= t.ground_id <= DungeonTiles.FLOOR_MAX]
         assert len(floors) > 0, "Expected at least some stone floor tiles (rooms)"
 
     def test_has_walls(self):
+        from ai_core.generators.dungeon import DungeonTiles
         gen = DungeonGenerator(width=64, height=64, seed=1)
         result = gen.generate()
-        walls = [t for t in result.tiles if t.ground_id == Tiles.STONE_WALL]
+        walls = [t for t in result.tiles
+                 if DungeonTiles.WALL_MIN <= t.ground_id <= DungeonTiles.WALL_MAX]
         assert len(walls) > 0, "Expected stone wall tiles"
 
     def test_has_corridors(self):
+        from ai_core.generators.dungeon import DungeonTiles
         gen = DungeonGenerator(width=64, height=64, rooms_count=6, seed=42)
         result = gen.generate()
         # Corridors connect rooms, so floor tiles exist outside tight clusters
-        floors = [t for t in result.tiles if t.ground_id == Tiles.STONE]
+        floors = [t for t in result.tiles
+                  if DungeonTiles.FLOOR_MIN <= t.ground_id <= DungeonTiles.FLOOR_MAX]
         assert len(floors) >= 6 * 4 * 4  # at least 6 rooms of min size
 
     def test_multi_floor(self):
