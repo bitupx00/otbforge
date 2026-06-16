@@ -355,6 +355,175 @@ def cmd_convert(args):
         return 1
 
 
+def cmd_diff(args):
+    """Compare two map files and show differences."""
+    from ai_core.map_diff import MapDiff
+
+    path_a = args.map1
+    path_b = args.map2
+
+    for p in (path_a, path_b):
+        if not os.path.exists(p):
+            print(f"❌ File not found: {p}", file=sys.stderr)
+            return 1
+
+    try:
+        result = MapDiff.compare_files(path_a, path_b)
+    except Exception as e:
+        print(f"❌ Failed to compare maps: {e}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(result.to_json(), indent=2))
+    else:
+        if args.detailed:
+            print(result.detailed())
+        else:
+            print(result.summary())
+
+    return 0
+
+
+def cmd_analyze(args):
+    """Run biome analysis on a map file."""
+    from ai_core.biome_analyzer import BiomeAnalyzer
+
+    filepath = args.file
+    if not os.path.exists(filepath):
+        print(f"❌ File not found: {filepath}", file=sys.stderr)
+        return 1
+
+    try:
+        report = BiomeAnalyzer.from_file(filepath, store_heatmap=True)
+    except Exception as e:
+        print(f"❌ Failed to analyze map: {e}", file=sys.stderr)
+        return 1
+
+    print(report.summary())
+    print()
+    print(report.heatmap())
+    return 0
+
+
+def cmd_batch(args):
+    """Run batch generation from a config file."""
+    from ai_core.batch_generator import load_batch_config, generate_batch
+
+    config_path = args.config
+    if not os.path.exists(config_path):
+        print(f"❌ Config file not found: {config_path}", file=sys.stderr)
+        return 1
+
+    try:
+        batch_cfg = load_batch_config(config_path)
+    except (ValueError, ImportError) as e:
+        print(f"❌ Failed to load config: {e}", file=sys.stderr)
+        return 1
+
+    if not batch_cfg.maps:
+        print("❌ No maps defined in config", file=sys.stderr)
+        return 1
+
+    print(f"📦 Batch generation: {len(batch_cfg.maps)} map(s) -> {batch_cfg.output_dir}")
+
+    def progress(i, total, name, status):
+        icon = "✅" if status == "done" else "⚙️"
+        print(f"  {icon} [{i + 1}/{total}] {name}: {status}")
+
+    start = time.time()
+    try:
+        files = generate_batch(batch_cfg, progress_callback=progress)
+    except Exception as e:
+        print(f"❌ Batch generation failed: {e}", file=sys.stderr)
+        return 1
+
+    elapsed = time.time() - start
+    print(f"\n✅ Batch complete: {len(files)} maps in {elapsed:.2f}s")
+    for f in files:
+        size = os.path.getsize(f) if os.path.exists(f) else 0
+        print(f"   {f} ({size:,} bytes)")
+    return 0
+
+
+def cmd_quest(args):
+    """Add a quest area to an existing map."""
+    from ai_core.generators.quest import (
+        QuestGenerator, QuestTemplate,
+        DragonSlayerQuest, TombRaiderQuest, ElvenRuinsQuest,
+        IceCaveQuest, DemonCryptQuest, PirateCoveQuest,
+        SpiderNestQuest, OrcFortressQuest, VampireManorQuest,
+        DwarvenMinesQuest, AncientTempleQuest, BanditHideoutQuest,
+    )
+
+    map_path = args.map_file
+    if not os.path.exists(map_path):
+        print(f"❌ Map file not found: {map_path}", file=sys.stderr)
+        return 1
+
+    # Parse position
+    pos_parts = args.position.split(",")
+    if len(pos_parts) != 3:
+        print(f"❌ Invalid position format: {args.position} (expected x,y,z)", file=sys.stderr)
+        return 1
+    from ai_core.models import Position
+    position = Position(
+        x=int(pos_parts[0].strip()),
+        y=int(pos_parts[1].strip()),
+        z=int(pos_parts[2].strip()),
+    )
+
+    # Load map
+    try:
+        map_data = _load_map(map_path)
+    except Exception as e:
+        print(f"❌ Failed to load map: {e}", file=sys.stderr)
+        return 1
+
+    # Select quest template
+    quest_name = args.quest_name.lower() if args.quest_name else ""
+    template_map = {
+        "dragon": DragonSlayerQuest(),
+        "tomb": TombRaiderQuest(),
+        "elven": ElvenRuinsQuest(),
+        "ice": IceCaveQuest(),
+        "demon": DemonCryptQuest(),
+        "pirate": PirateCoveQuest(),
+        "spider": SpiderNestQuest(),
+        "orc": OrcFortressQuest(),
+        "vampire": VampireManorQuest(),
+        "dwarven": DwarvenMinesQuest(),
+        "temple": AncientTempleQuest(),
+        "bandit": BanditHideoutQuest(),
+    }
+
+    # Find matching template
+    template = None
+    for key, tmpl in template_map.items():
+        if key in quest_name:
+            template = tmpl
+            break
+
+    if template is None:
+        # Create a custom template from the quest name
+        template = QuestTemplate(name=args.quest_name or "Custom Quest", description="Custom quest area")
+
+    print(f"⚔️  Adding quest: {template.name}")
+    print(f"   Position: ({position.x}, {position.y}, {position.z})")
+    print(f"   Difficulty: {template.difficulty.value}")
+
+    gen = QuestGenerator(seed=args.seed if args.seed is not None else 42)
+    gen.generate_quest(map_data, template, position)
+
+    # Save result
+    output = args.output or map_path
+    _save_otbm(map_data, output)
+
+    elapsed_str = ""
+    print(f"✅ Quest '{template.name}' added to map")
+    print(f"   Output: {output}")
+    return 0
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Argument parser
 # ═══════════════════════════════════════════════════════════════════════════
@@ -424,6 +593,31 @@ Examples:
                              help="Target format")
     conv_parser.add_argument("--output", "-o", default=None, help="Output file")
 
+    # ─── diff ──────────────────────────────────────────────────────────
+    diff_parser = subparsers.add_parser("diff", help="Compare two map files")
+    diff_parser.add_argument("map1", help="First map file (OTBM or JSON)")
+    diff_parser.add_argument("map2", help="Second map file (OTBM or JSON)")
+    diff_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    diff_parser.add_argument("--detailed", "-d", action="store_true", help="Show detailed diff")
+
+    # ─── analyze ───────────────────────────────────────────────────────
+    analyze_parser = subparsers.add_parser("analyze", aliases=["analysis"], help="Biome analysis")
+    analyze_parser.add_argument("file", help="OTBM or JSON file to analyze")
+
+    # ─── batch ─────────────────────────────────────────────────────────
+    batch_parser = subparsers.add_parser("batch", help="Batch generation from config file")
+    batch_parser.add_argument("config", help="JSON or YAML batch config file")
+
+    # ─── quest ─────────────────────────────────────────────────────────
+    quest_parser = subparsers.add_parser("quest", help="Add a quest area to a map")
+    quest_parser.add_argument("map_file", help="OTBM or JSON map file")
+    quest_parser.add_argument("--name", "-n", dest="quest_name", default="dragon",
+                              help="Quest template name (dragon, tomb, elven, ice, demon, pirate, spider, orc, vampire, dwarven, temple, bandit)")
+    quest_parser.add_argument("--position", "-p", required=True,
+                              help="Quest position as x,y,z (e.g. 100,100,7)")
+    quest_parser.add_argument("--seed", type=int, default=None, help="Random seed")
+    quest_parser.add_argument("--output", "-o", default=None, help="Output file (default: overwrite input)")
+
     return parser
 
 
@@ -454,6 +648,18 @@ def main(argv: list = None) -> int:
 
     elif args.command in ("convert", "conv", "c"):
         return cmd_convert(args)
+
+    elif args.command == "diff":
+        return cmd_diff(args)
+
+    elif args.command in ("analyze", "analysis"):
+        return cmd_analyze(args)
+
+    elif args.command == "batch":
+        return cmd_batch(args)
+
+    elif args.command == "quest":
+        return cmd_quest(args)
 
     else:
         parser.print_help()
