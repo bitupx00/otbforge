@@ -1045,10 +1045,12 @@ mod tests {
     fn test_validate_container_depth() {
         let mut map = MapData::with_dimensions(512, 512);
         // Create deeply nested container: depth 4 > MAX_CONTAINER_DEPTH(3)
+        // Need 5 levels: leaf(0) -> lvl4(1) -> lvl3(2) -> lvl2(3) -> lvl1(4)
         let deep = ItemData::new(1);
-        let lvl3 = ItemData::new(2).with_child(deep);
-        let lvl2 = ItemData::new(3).with_child(lvl3);
-        let lvl1 = ItemData::new(4).with_child(lvl2);
+        let lvl4 = ItemData::new(2).with_child(deep);
+        let lvl3 = ItemData::new(3).with_child(lvl4);
+        let lvl2 = ItemData::new(4).with_child(lvl3);
+        let lvl1 = ItemData::new(5).with_child(lvl2);
 
         map.add_tile(10, 20, 7, tiles::GRASS);
         map.tiles[0].items.push(lvl1);
