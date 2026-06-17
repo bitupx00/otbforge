@@ -113,6 +113,40 @@ enum Commands {
         #[arg(short, long, default_value = "dungeon.otbm")]
         output: PathBuf,
     },
+    /// Generate a map using AI (LLM blueprint system)
+    AiGenerate {
+        /// Natural language prompt describing the map to generate
+        #[arg(short, long)]
+        prompt: String,
+
+        /// Map width
+        #[arg(short, long, default_value_t = 128)]
+        width: u32,
+
+        /// Map height
+        #[arg(short = 'H', long, default_value_t = 128)]
+        height: u32,
+
+        /// Random seed
+        #[arg(short, long, default_value_t = 42)]
+        seed: u64,
+
+        /// AI API URL
+        #[arg(long, default_value = "https://api.z.ai/api/coding/paas/v4")]
+        api_url: String,
+
+        /// AI API Key
+        #[arg(long, env = "OTBFORGE_API_KEY")]
+        api_key: String,
+
+        /// AI model name
+        #[arg(long, default_value = "glm-5-turbo")]
+        model: String,
+
+        /// Output file
+        #[arg(short, long, default_value = "ai_map.otbm")]
+        output: PathBuf,
+    },
 }
 
 fn main() {
@@ -293,6 +327,49 @@ fn main() {
                 eprintln!("Error: {}", e); std::process::exit(1);
             });
             println!("✓ Dungeon {} tiles → {}", map.tiles.len(), output.display());
+        }
+        Commands::AiGenerate {
+            prompt,
+            width,
+            height,
+            seed,
+            api_url,
+            api_key,
+            model,
+            output,
+        } => {
+            println!(
+                "otbforge ai-generate: {}x{} seed={} model={}",
+                width, height, seed, model
+            );
+            println!("→ Prompt: {}", prompt);
+            println!("→ Calling AI API...");
+
+            let client = otbforge_ai::AiClient::new(&api_url, &api_key, &model);
+            let config = otbforge_ai::AiGenerateConfig {
+                prompt,
+                width,
+                height,
+                seed,
+            };
+
+            let map = otbforge_ai::generate_map(&client, &config).unwrap_or_else(|e| {
+                eprintln!("Error generating map: {}", e);
+                std::process::exit(1);
+            });
+
+            let tiles = map.tiles.len();
+            let bytes = otbforge_otbm::write_otbm(&map);
+            std::fs::write(&output, &bytes).unwrap_or_else(|e| {
+                eprintln!("Error writing {}: {}", output.display(), e);
+                std::process::exit(1);
+            });
+            println!(
+                "✓ Written {} tiles ({} bytes) to {}",
+                tiles,
+                bytes.len(),
+                output.display()
+            );
         }
     }
 }

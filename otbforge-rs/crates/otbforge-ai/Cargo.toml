@@ -1,0 +1,15 @@
+[package]
+name = "otbforge-ai"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "AI-powered map generation via LLM blueprint for OTBForge"
+
+[dependencies]
+otbforge-models = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+rand = { workspace = true }
+anyhow = { workspace = true }
