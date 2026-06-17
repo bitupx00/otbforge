@@ -178,16 +178,16 @@ impl Biome {
     /// Default ground item ID for this biome.
     pub fn ground_id(self) -> u16 {
         match self {
-            Biome::Grass => 102,
-            Biome::Forest => 102,
-            Biome::Desert => 351,
-            Biome::Snow => 742,
-            Biome::Jungle => 102,
-            Biome::Swamp => 202,
-            Biome::Mountain => 563,
-            Biome::Taiga => 202,
-            Biome::Tundra => 202,
-            Biome::Volcanic => 563,
+            Biome::Grass => 106,
+            Biome::Forest => 106,
+            Biome::Desert => 104,
+            Biome::Snow => 670,
+            Biome::Jungle => 106,
+            Biome::Swamp => 354,
+            Biome::Mountain => 431,
+            Biome::Taiga => 670,
+            Biome::Tundra => 670,
+            Biome::Volcanic => 598,
             Biome::Ocean => 493,
         }
     }
@@ -390,20 +390,20 @@ impl TerrainGenerator {
             }
             let r: f64 = deco_rng.random();
             match tile.ground_id {
-                102 => {
+                106 => {
                     // Grass: occasional tree or flower
                     if r < 0.03 {
-                        tile.items.push(ItemData::new(3599)); // tree
+                        tile.items.push(ItemData::new(4035)); // tree
                     } else if r < 0.06 {
-                        tile.items.push(ItemData::new(2984)); // flower
+                        tile.items.push(ItemData::new(6226)); // flower
                     } else if r < 0.07 {
-                        tile.items.push(ItemData::new(3557)); // bush
+                        tile.items.push(ItemData::new(2767)); // bush
                     }
                 }
-                742 => {
-                    // Snow: rare tree (taiga-like)
+                670 => {
+                    // Snow: rare dead tree (taiga-like)
                     if r < 0.02 {
-                        tile.items.push(ItemData::new(3599)); // tree
+                        tile.items.push(ItemData::new(2709)); // dead tree
                     }
                 }
                 _ => {}
@@ -730,7 +730,7 @@ impl DungeonGenerator {
         let mut map = MapData::with_dimensions(w, h);
         map.description = format!("Generated dungeon (seed={})", self.config.seed);
 
-        let ground_id: u16 = 563; // stone_floor
+        let ground_id: u16 = 431; // stone_floor
         let wall_id: u16 = 1017; // stone_wall
 
         // Monster names for dungeon spawns
