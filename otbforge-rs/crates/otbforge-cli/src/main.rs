@@ -140,7 +140,7 @@ enum Commands {
         api_key: String,
 
         /// AI model name
-        #[arg(long, default_value = "glm-5-turbo")]
+        #[arg(long, default_value = "glm-5.1")]
         model: String,
 
         /// Output file

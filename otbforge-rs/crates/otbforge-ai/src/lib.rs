@@ -130,6 +130,7 @@ struct ChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
     max_tokens: u32,
+    temperature: f32,
 }
 
 #[derive(Deserialize)]
@@ -145,6 +146,8 @@ struct ChatChoice {
 #[derive(Deserialize)]
 struct ChatResponseMessage {
     content: String,
+    #[serde(default)]
+    reasoning_content: Option<String>,
 }
 
 impl AiClient {
@@ -177,7 +180,8 @@ impl AiClient {
                     content: user_prompt,
                 },
             ],
-            max_tokens: 4096,
+            max_tokens: 8192,
+            temperature: 0.7,
         };
 
         let url = format!("{}/chat/completions", self.api_url);
@@ -210,11 +214,30 @@ impl AiClient {
             .json()
             .context("Failed to parse AI API response as JSON")?;
 
-        let content = chat_response
+        let choice = chat_response
             .choices
             .first()
-            .map(|c| c.message.content.trim().to_string())
             .ok_or_else(|| anyhow!("AI API returned no choices"))?;
+
+        // GLM models may use reasoning_content instead of content
+        let content = if choice.message.content.trim().is_empty() {
+            choice
+                .message
+                .reasoning_content
+                .as_deref()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+            // For reasoning models, the actual JSON output may be at the end of reasoning
+        } else {
+            choice.message.content.trim().to_string()
+        };
+
+        if content.is_empty() {
+            return Err(anyhow!("AI API returned empty content (finish_reason may indicate truncation)"));
+        }
+
+        eprintln!("  Response length: {} chars", content.len());
 
         // Strip markdown code fences if present
         let json_str = strip_code_fences(&content);
