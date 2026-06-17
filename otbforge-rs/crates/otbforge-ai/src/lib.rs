@@ -39,9 +39,13 @@ NATURE: flower=2982 rock=1304 mushroom=3457";
 pub struct Blueprint {
     pub description: String,
     pub zones: Vec<Zone>,
+    #[serde(default)]
     pub structures: Vec<Structure>,
+    #[serde(default)]
     pub roads: Vec<Road>,
+    #[serde(default)]
     pub decorations: Vec<Decoration>,
+    #[serde(default)]
     pub spawns: Vec<SpawnPoint>,
 }
 
@@ -54,6 +58,7 @@ pub struct Zone {
     pub width: u16,
     pub height: u16,
     pub ground_id: u16,
+    #[serde(default)]
     pub border_wall_id: Option<u16>,
 }
 
@@ -68,8 +73,11 @@ pub struct Structure {
     pub height: u16,
     pub wall_id: u16,
     pub floor_id: u16,
+    #[serde(default)]
     pub door_id: Option<u16>,
+    #[serde(default)]
     pub roof_id: Option<u16>,
+    #[serde(default)]
     pub interior_items: Vec<InteriorItem>,
 }
 
@@ -189,7 +197,7 @@ impl AiClient {
                     content: user_prompt,
                 },
             ],
-            max_tokens: 8192,
+            max_tokens: 16384,
             temperature: 0.7,
         };
 
