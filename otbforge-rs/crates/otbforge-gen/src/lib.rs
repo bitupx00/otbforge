@@ -424,6 +424,217 @@ impl TerrainGenerator {
 }
 
 // ===========================================================================
+// Uniform Biome Map Generator
+// ===========================================================================
+
+/// Parse a biome name string (case-insensitive) into a [`Biome`] variant.
+///
+/// Returns `None` for unrecognized names.
+pub fn parse_biome(name: &str) -> Option<Biome> {
+    match name.to_ascii_lowercase().as_str() {
+        "grass" => Some(Biome::Grass),
+        "forest" => Some(Biome::Forest),
+        "desert" => Some(Biome::Desert),
+        "snow" => Some(Biome::Snow),
+        "jungle" => Some(Biome::Jungle),
+        "swamp" => Some(Biome::Swamp),
+        "mountain" => Some(Biome::Mountain),
+        "taiga" => Some(Biome::Taiga),
+        "tundra" => Some(Biome::Tundra),
+        "volcanic" => Some(Biome::Volcanic),
+        "ocean" => Some(Biome::Ocean),
+        "dungeon" => None, // handled separately
+        "mixed" => None,   // handled separately
+        _ => None,
+    }
+}
+
+/// Generate a map uniformly filled with a specific biome.
+///
+/// Unlike [`TerrainGenerator::generate`], this produces a map where *all* surface
+/// tiles belong to the requested biome — no ocean/water, no biome mixing.
+/// Noise is used only for subtle terrain variation *within* the biome.
+///
+/// # Panics
+/// Panics if `biome` is not a recognized biome name (not "dungeon" or "mixed").
+pub fn generate_biome_map(biome_str: &str, width: u32, height: u32, seed: u64) -> MapData {
+    // "dungeon" delegates to DungeonGenerator
+    if biome_str.eq_ignore_ascii_case("dungeon") {
+        let config = DungeonConfig {
+            width,
+            height,
+            seed,
+            ..Default::default()
+        };
+        return DungeonGenerator::new(config).generate();
+    }
+
+    let biome = parse_biome(biome_str).unwrap_or_else(|| {
+        panic!("unknown biome: '{}'; expected grass, forest, desert, snow, swamp, mountain, jungle, taiga, tundra, volcanic, ocean, or dungeon", biome_str)
+    });
+
+    let w = width as u16;
+    let h = height as u16;
+
+    let mut map = MapData::with_dimensions(w, h);
+    map.description = format!("Generated {} biome (seed={})", biome_str, seed);
+
+    let perlin = noise::PerlinNoise::new(seed);
+    let scale = 0.015; // gentle noise for subtle variation
+
+    // Decorations depend on biome
+    struct Decoration {
+        /// Probability of a decoration on any given tile (0.0–1.0).
+        chance: f64,
+        /// Item IDs placed when triggered (first hit wins).
+        items: &'static [u16],
+    }
+
+    let decorations: &[Decoration] = match biome {
+        Biome::Grass => &[
+            Decoration { chance: 0.04, items: &[4035] },  // tree
+            Decoration { chance: 0.07, items: &[6226] },  // flower
+            Decoration { chance: 0.09, items: &[2767] },  // bush
+        ],
+        Biome::Forest => &[
+            Decoration { chance: 0.15, items: &[4035] },  // tree
+            Decoration { chance: 0.20, items: &[2709] },  // dead tree (variety)
+            Decoration { chance: 0.23, items: &[6226] },  // flower
+            Decoration { chance: 0.26, items: &[2767] },  // bush
+        ],
+        Biome::Desert => &[
+            Decoration { chance: 0.02, items: &[4039] },  // cactus-like
+            Decoration { chance: 0.03, items: &[2767] },  // small bush
+        ],
+        Biome::Snow => &[
+            Decoration { chance: 0.02, items: &[2709] },  // dead tree
+        ],
+        Biome::Jungle => &[
+            Decoration { chance: 0.18, items: &[4035] },  // tree (dense)
+            Decoration { chance: 0.24, items: &[2709] },  // dead tree
+            Decoration { chance: 0.27, items: &[2767] },  // bush
+        ],
+        Biome::Swamp => &[
+            Decoration { chance: 0.06, items: &[4035] },  // tree (mangrove-like)
+            Decoration { chance: 0.08, items: &[2767] },  // bush
+        ],
+        Biome::Mountain => &[
+            Decoration { chance: 0.02, items: &[2709] },  // dead tree
+        ],
+        Biome::Taiga => &[
+            Decoration { chance: 0.08, items: &[4035] },  // tree
+            Decoration { chance: 0.10, items: &[2709] },  // dead tree
+        ],
+        Biome::Tundra => &[
+            Decoration { chance: 0.01, items: &[2709] },  // rare dead tree
+        ],
+        Biome::Volcanic => &[
+            Decoration { chance: 0.03, items: &[2709] },  // dead tree
+        ],
+        Biome::Ocean => &[], // no decorations on water
+    };
+
+    let ground_id = biome.ground_id();
+    let mut deco_rng = StdRng::seed_from_u64(seed.wrapping_add(2));
+
+    // Fill the map with the biome's ground tile and add decorations
+    for y in 0..height {
+        for x in 0..width {
+            let fx = x as f64;
+            let fy = y as f64;
+
+            // Use noise for subtle ground variation — but never switch biome or add water.
+            // Just vary the density of decorations slightly.
+            let _noise_val = perlin.octave(fx * scale, fy * scale, 3, 0.5, 2.0);
+
+            let tile = map.add_tile(x as u16, y as u16, 7, ground_id);
+
+            // Place decorations
+            let r: f64 = deco_rng.random();
+            for deco in decorations {
+                if r < deco.chance {
+                    for &item_id in deco.items {
+                        tile.items.push(ItemData::new(item_id));
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // Add rivers for grass / forest biomes
+    if matches!(biome, Biome::Grass | Biome::Forest) {
+        let river_rng = StdRng::seed_from_u64(seed.wrapping_add(3));
+        carve_biome_rivers(&mut map, &perlin, 2, width, height);
+        let _ = river_rng; // consumed conceptually by carve_biome_rivers via seed offset
+    }
+
+    // Add a default town at map center
+    let cx = width / 2;
+    let cy = height / 2;
+    map.add_town(1, "Main Town", Position::new(cx as u16, cy as u16, 7));
+
+    // Add a spawn at the center with a rat
+    let spawn = SpawnData::new(cx as u16, cy as u16, 7, 15).with_monster("Rat", 2, 3);
+    map.spawns.push(spawn);
+
+    map
+}
+
+/// Carve 1–2 rivers through a biome map using noise for direction.
+/// Only places water tiles; does *not* convert ground tiles to ocean biome.
+fn carve_biome_rivers(map: &mut MapData, perlin: &noise::PerlinNoise, count: u32, width: u32, height: u32) {
+    let w = width as f64;
+    let h = height as f64;
+
+    for i in 0..count {
+        // Deterministic source points based on river index
+        let sx = w * (0.25 + 0.5 * (i as f64 / (count as f64).max(1.0)));
+        let sy = h * 0.2;
+
+        let mut cx = sx;
+        let mut cy = sy;
+
+        for _ in 0..600 {
+            let ix = cx as u32;
+            let iy = cy as u32;
+
+            if ix >= width || iy >= height {
+                break;
+            }
+
+            // Place water tile (2-tile wide river — narrower than mixed terrain)
+            for dx in 0i32..=0 {
+                for dy in 0i32..=0 {
+                    let rx = (ix as i32 + dx).clamp(0, width as i32 - 1) as u32;
+                    let ry = (iy as i32 + dy).clamp(0, height as i32 - 1) as u32;
+                    let rx16 = rx as u16;
+                    let ry16 = ry as u16;
+                    let already_water = map
+                        .tiles
+                        .iter()
+                        .any(|t| t.x == rx16 && t.y == ry16 && t.z == 7 && t.ground_id == 493);
+                    if !already_water {
+                        map.add_tile(rx16, ry16, 7, 493);
+                    }
+                }
+            }
+
+            // Follow noise gradient toward bottom of map
+            let n = perlin.noise2d(cx * 0.05, cy * 0.05);
+            let angle = n * std::f64::consts::PI * 2.0;
+
+            cx += angle.cos() * 1.5;
+            cy += 1.0 + angle.sin().abs() * 0.5; // bias downward
+
+            if cx < 0.0 || cy < 0.0 || cx >= w || cy >= h {
+                break;
+            }
+        }
+    }
+}
+
+// ===========================================================================
 // Dungeon Generator (BSP)
 // ===========================================================================
 

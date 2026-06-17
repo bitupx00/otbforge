@@ -122,14 +122,21 @@ fn main() {
         Commands::Generate { biome, width, height, seed, output } => {
             println!("otbforge generate: biome={} {}x{} seed={}", biome, width, height, seed);
             println!("→ Generating map...");
-            let config = otbforge_gen::TerrainConfig {
-                width,
-                height,
-                seed: if seed == 0 { 42 } else { seed },
-                ..Default::default()
+            let effective_seed = if seed == 0 { 42 } else { seed };
+            let map = if biome.eq_ignore_ascii_case("mixed") {
+                // Mixed: use the full TerrainGenerator with biomes, ocean, rivers, etc.
+                let config = otbforge_gen::TerrainConfig {
+                    width,
+                    height,
+                    seed: effective_seed,
+                    ..Default::default()
+                };
+                let terrain_gen = otbforge_gen::TerrainGenerator::new(config);
+                terrain_gen.generate()
+            } else {
+                // Specific biome: fill entire map with that biome (no ocean)
+                otbforge_gen::generate_biome_map(&biome, width, height, effective_seed)
             };
-            let terrain_gen = otbforge_gen::TerrainGenerator::new(config);
-            let map = terrain_gen.generate();
             let tiles = map.tiles.len();
             let bytes = otbforge_otbm::write_otbm(&map);
             std::fs::write(&output, &bytes).unwrap_or_else(|e| {
