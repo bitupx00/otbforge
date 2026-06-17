@@ -181,7 +181,10 @@ impl AiClient {
         };
 
         let url = format!("{}/chat/completions", self.api_url);
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::blocking::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap();
         let response = client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
