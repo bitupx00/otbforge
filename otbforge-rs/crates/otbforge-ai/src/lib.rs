@@ -16,10 +16,19 @@ use serde::{Deserialize, Serialize};
 use otbforge_models::{ItemData, MapData, Position};
 
 // ---------------------------------------------------------------------------
-// Item catalog (embedded at compile time)
+// Compact item catalog (inline — avoids bloating the LLM prompt)
 // ---------------------------------------------------------------------------
 
-const ITEM_CATALOG_JSON: &str = include_str!("../../../data/item_catalog.json");
+const ITEM_CATALOG: &str = "\
+GROUND: grass=106 sand=104 dirt=103 dark_dirt=351 swamp=354 snow=670 stone_floor=431 wood_floor=405 marble_floor=406\n\
+WALLS: stone_wall=371 dirt_wall=356 brick_wall=1025 bamboo_wall=388 sandstone_wall=464 white_stone_wall=1111 ornamented_wall=1128\n\
+WATER: water=493 deep_water=491\n\
+DOORS: wooden_door=512 stone_door=513 bamboo_door=389\n\
+TREES: tree=3599 cherry_blossom=2670 palm_tree=3642 bamboo=3675\n\
+NARUTO: bamboo_fence=390 bamboo_roof=391 lantern=1764 konoha_banner=3605 torii_gate=3606 pagoda=3607\n\
+FURNITURE: table=1623 chair=1628 bed=1754\n\
+CONTAINERS: chest=1747 barrel=1744\n\
+NATURE: flower=2982 rock=1304 mushroom=3457";
 
 // ---------------------------------------------------------------------------
 // Blueprint types (what the LLM generates)
@@ -188,7 +197,7 @@ impl AiClient {
         eprintln!("  API URL: {}", url);
         let client = reqwest::blocking::Client::builder()
             .danger_accept_invalid_certs(true)
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(120))
             .build()
             .map_err(|e| anyhow!("Failed to build HTTP client: {}", e))?;
         let response = client
@@ -322,7 +331,7 @@ JSON SCHEMA:
     {{"name": "string", "x": number, "y": number, "monster": "string", "count": number}}
   ]
 }}"#,
-        catalog = ITEM_CATALOG_JSON,
+        catalog = ITEM_CATALOG,
         width = width,
         height = height,
         w = width - 1,
