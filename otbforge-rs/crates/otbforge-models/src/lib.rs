@@ -970,19 +970,29 @@ impl MapData {
 
     // ----- Builder methods -----
 
-    /// Create and append a tile, returning a mutable reference for chaining.
-    pub fn add_tile(
-        &mut self,
-        x: u16,
-        y: u16,
-        z: u8,
-        ground_id: u16,
-    ) -> &mut TileData {
-        self.tiles.push(TileData::new(x, y, z, ground_id));
+    /// Create and return a tile at (x, y, z), reusing an existing one if present.
+    ///
+    /// If a tile already exists at `(x, y, z)` its `ground_id` is updated and a
+    /// mutable reference to it is returned — no duplicate is created.  Otherwise
+    /// a new tile is appended.
+    pub fn add_tile(&mut self, x: u16, y: u16, z: u8, ground_id: u16) -> &mut TileData {
+        let idx = self
+            .tiles
+            .iter()
+            .position(|t| t.x == x && t.y == y && t.z == z);
+        if let Some(idx) = idx {
+            self.tiles[idx].ground_id = ground_id;
+        } else {
+            self.tiles.push(TileData::new(x, y, z, ground_id));
+        }
         self.tiles.last_mut().unwrap()
     }
 
     /// Add a tile with full options, returning a mutable reference.
+    ///
+    /// If a tile already exists at `(x, y, z)` its fields are overwritten and a
+    /// mutable reference to it is returned — no duplicate is created.  Otherwise
+    /// a new tile is appended.
     pub fn add_tile_full(
         &mut self,
         x: u16,
@@ -992,15 +1002,25 @@ impl MapData {
         flags: TileFlags,
         house_id: u32,
     ) -> &mut TileData {
-        self.tiles.push(TileData {
-            x,
-            y,
-            z,
-            ground_id,
-            items: Vec::new(),
-            flags,
-            house_id,
-        });
+        let idx = self
+            .tiles
+            .iter()
+            .position(|t| t.x == x && t.y == y && t.z == z);
+        if let Some(idx) = idx {
+            self.tiles[idx].ground_id = ground_id;
+            self.tiles[idx].flags = flags;
+            self.tiles[idx].house_id = house_id;
+        } else {
+            self.tiles.push(TileData {
+                x,
+                y,
+                z,
+                ground_id,
+                items: Vec::new(),
+                flags,
+                house_id,
+            });
+        }
         self.tiles.last_mut().unwrap()
     }
 
