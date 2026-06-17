@@ -20,15 +20,17 @@ use otbforge_models::{ItemData, MapData, Position};
 // ---------------------------------------------------------------------------
 
 const ITEM_CATALOG: &str = "\
-GROUND: grass=106 sand=104 dirt=103 dark_dirt=351 swamp=354 snow=670 stone_floor=431 wood_floor=405 marble_floor=406\n\
-WALLS: stone_wall=371 dirt_wall=356 brick_wall=1025 bamboo_wall=388 sandstone_wall=464 white_stone_wall=1111 ornamented_wall=1128\n\
-WATER: water=493 deep_water=491\n\
-DOORS: wooden_door=512 stone_door=513 bamboo_door=389\n\
-TREES: tree=3599 cherry_blossom=2670 palm_tree=3642 bamboo=3675\n\
-NARUTO: bamboo_fence=390 bamboo_roof=391 lantern=1764 konoha_banner=3605 torii_gate=3606 pagoda=3607\n\
-FURNITURE: table=1623 chair=1628 bed=1754\n\
-CONTAINERS: chest=1747 barrel=1744\n\
-NATURE: flower=2982 rock=1304 mushroom=3457";
+GROUND: grass=106 grass_alt=293 sand=104 dirt=103 dirt_floor=351 muddy_floor=354 snow=670 stone_floor=431 wood_floor=434 white_marble=406 black_marble=407 sandstone_tile=412 stone_tile=413 tiled_floor=414 marble_floor=415 white_stone_tile=457 earth_ground=280\n\
+WALLS: dirt_wall=356 stone_wall=371 sandstone_wall=464 bamboo_wall=3450 white_stone_wall=1111 ornamented_wall=1128 framework_wall=1036 brick_wall=1025 flowery_wall=1909 lava_wall=1196\n\
+DOORS: wooden_door_closed=1209 door_1212=1212 door_1213=1213 door_1219=1219\n\
+ROOFS: flat_roof=920 tiled_roof=925 wooden_roof=945 sandstone_roof=1072 bamboo_roof=6210\n\
+WINDOWS: stone_window=1267 sandstone_window=1273 bamboo_window=6458\n\
+TREES: dead_tree=2709 fir_tree=2700 snowy_fir=2698 magic_tree=2699 plum_tree=2703 pear_tree=2705 dwarf_tree=2711 old_tree=2722 orange_tree=4006 cherry_blossom_tree=10143 bush=2767 rose_bush=2762 small_fir=2768 thorn_bush=3986 tree=4035\n\
+WATER: water=493 shallow_water=4608 lava=1509 steaming_lava=8649 waterfall=3569\n\
+NARUTO: bamboo_fence=3745 bamboo_plant=4025 bamboo_lamp=5402 konoha_banner=1470 lantern=3743 small_pagoda=3709 bamboo_table=3809 bamboo_drawer=3832 bamboo_shelf=3826 broken_bamboo=3453 bamboo_window=6458\n\
+FURNITURE: table=1622 big_table=1602 small_table=1619 square_table=1615 small_round_table=1616 heavy_wooden_chair=9435 frozen_chair=7163 beach_chair=7712\n\
+CONTAINERS: treasure_chest=5675 frozen_chest=7160 small_trunk=3811 large_trunk=6085 rain_barrel=9466\n\
+DECORATIONS: flowers=108 moon_flowers=2740 white_flower=2742 love_flower=2748 sunflower=2753 water_lily=2755 rocks=891 loose_stone=468 stone_railing=1524 sandstone_railing=1562 white_stone_railing=1582 stone_pillar=1277 sandstone_pillar=1549 street_lamp=1479 stone_coal_basin=1486 street_sign=1438 mossy_stone=1353";
 
 // ---------------------------------------------------------------------------
 // Blueprint types (what the LLM generates)
