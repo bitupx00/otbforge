@@ -181,17 +181,24 @@ impl AiClient {
         };
 
         let url = format!("{}/chat/completions", self.api_url);
+        eprintln!("  API URL: {}", url);
         let client = reqwest::blocking::Client::builder()
             .danger_accept_invalid_certs(true)
+            .timeout(std::time::Duration::from_secs(60))
             .build()
-            .unwrap();
+            .map_err(|e| anyhow!("Failed to build HTTP client: {}", e))?;
         let response = client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
-            .context("Failed to send request to AI API")?;
+            .map_err(|e| {
+                anyhow!(
+                    "Failed to send request to AI API (url={}, error={})",
+                    url, e
+                )
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
